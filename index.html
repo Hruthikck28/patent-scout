@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patent-Scout</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background-color: #f9fafb; color: #111827; }
+        h1 { color: #2563eb; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input[type="text"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #2563eb; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #1d4ed8; }
+        .result-card { border-left: 4px solid #2563eb; background: white; padding: 15px; margin-top: 15px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .tag { background: #e0e7ff; color: #4338ca; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+        .translation-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 10px; margin-top: 10px; font-style: italic; display: none; }
+        #loading { display: none; color: #6b7280; font-style: italic; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>🔭 Patent-Scout</h1>
+    <p>Hybrid RAG Innovation Accelerator searching real Medical AI Patents.</p>
+
+    <div class="card">
+        <label>Filter by Assignee (Optional):</label>
+        <input type="text" id="assigneeInput" placeholder="e.g., IBM, Google">
+        
+        <label>Describe the invention concept:</label>
+        <input type="text" id="queryInput" placeholder="e.g., Predicting diagnosis using neural networks">
+        
+        <button onclick="searchPatents()">Search Prior Art</button>
+        <p id="loading">Searching the vector database...</p>
+    </div>
+
+    <div id="resultsContainer"></div>
+    <div class="card" style="margin-top: 30px; border-top: 4px solid #ef4444;">
+        <h2 style="color: #ef4444; margin-top: 0;">Automated FTO Risk Assessment</h2>
+        <p>Upload your invention draft (PDF) to scan for potential IP infringements.</p>
+        
+        <input type="file" id="pdfUpload" accept="application/pdf" style="margin-bottom: 15px;">
+        <button onclick="runFTO()" style="background-color: #ef4444;">Run Risk Scan</button>
+        <p id="ftoLoading" style="display: none; color: #6b7280; font-style: italic;">Parsing PDF and analyzing vectors... This may take a moment.</p>
+    </div>
+
+    <div id="ftoResultsContainer"></div>
+
+    <script>
+        async function searchPatents() {
+            const query = document.getElementById('queryInput').value;
+            const assignee = document.getElementById('assigneeInput').value;
+            const resultsContainer = document.getElementById('resultsContainer');
+            const loading = document.getElementById('loading');
+
+            if (!query) return alert("Please enter a search query.");
+
+            resultsContainer.innerHTML = "";
+            loading.style.display = "block";
+
+            try {
+                // Call the FastAPI Backend
+                const response = await fetch('http://127.0.0.1:8000/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, assignee: assignee })
+                });
+                
+                const data = await response.json();
+                loading.style.display = "none";
+
+                if (data.data.length === 0) {
+                    resultsContainer.innerHTML = "<p>No matches found.</p>";
+                    return;
+                }
+
+                // Render Results
+                data.data.forEach(pat => {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.innerHTML = `
+                        <h3>${pat.title}</h3>
+                        <p><span class="tag">Match: ${pat.similarity}%</span> <span class="tag">${pat.assignee}</span> <span class="tag">${pat.date}</span></p>
+                        <p><strong>Abstract:</strong> <span id="abstract-${pat.patent_id}">${pat.abstract}</span></p>
+                        <button onclick="translateText('${pat.patent_id}')">Explain in Plain English</button>
+                        <div id="translation-${pat.patent_id}" class="translation-box"></div>
+                    `;
+                    resultsContainer.appendChild(card);
+                });
+
+            } catch (error) {
+                loading.style.display = "none";
+                alert("Error connecting to the backend API.");
+            }
+        }
+
+        async function translateText(patentId) {
+            const abstractText = document.getElementById(`abstract-${patentId}`).innerText;
+            const translationBox = document.getElementById(`translation-${patentId}`);
+            
+            translationBox.style.display = "block";
+            translationBox.innerText = "Gemini is translating...";
+
+            try {
+                // Call the FastAPI Translation Endpoint
+                const response = await fetch('http://127.0.0.1:8000/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: abstractText })
+                });
+                
+                const data = await response.json();
+                translationBox.innerHTML = `<strong>💡 Plain English:</strong> ${data.translation}`;
+            } catch (error) {
+                translationBox.innerText = "Error translating text.";
+            }
+        }
+        async function runFTO() {
+            const fileInput = document.getElementById('pdfUpload');
+            const resultsContainer = document.getElementById('ftoResultsContainer');
+            const loading = document.getElementById('ftoLoading');
+
+            if (fileInput.files.length === 0) return alert("Please select a PDF file first.");
+
+            resultsContainer.innerHTML = "";
+            loading.style.display = "block";
+
+            // Prepare the file for upload
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/fto_check', {
+                    method: 'POST',
+                    body: formData // Note: We don't set Content-Type header; fetch handles it for FormData
+                });
+                
+                const data = await response.json();
+                loading.style.display = "none";
+
+                if (data.status !== "success") {
+                    throw new Error(data.detail);
+                }
+
+                // Render the Report Summary
+                resultsContainer.innerHTML = `<h3>Analysis Complete: ${data.total_chunks_analyzed} paragraphs scanned.</h3>`;
+
+                if (data.collisions_found === 0) {
+                    resultsContainer.innerHTML += `<div class="result-card" style="border-left-color: #10b981;">✅ <strong>Clear for takeoff.</strong> No high-risk collisions found in the database.</div>`;
+                    return;
+                }
+
+                // Render the Collisions
+                data.report.forEach(risk => {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.style.borderLeftColor = risk.risk_level.includes("HIGH") ? "#ef4444" : "#f59e0b";
+                    card.innerHTML = `
+                        <h4 style="margin: 0 0 10px 0;">${risk.risk_level} (${risk.similarity}% Match)</h4>
+                        <p><strong>Colliding Patent:</strong> ${risk.patent_title} (${risk.colliding_patent}) owned by ${risk.assignee}</p>
+                        <p style="font-size: 0.9em; background: #f3f4f6; padding: 10px; border-radius: 4px;">
+                            <em>"Your draft contained: ${risk.draft_excerpt}"</em>
+                        </p>
+                    `;
+                    resultsContainer.appendChild(card);
+                });
+
+            } catch (error) {
+                loading.style.display = "none";
+                alert("Error running FTO assessment: " + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

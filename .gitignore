@@ -1,0 +1,13 @@
+# Ignore secret keys
+.env
+
+# Ignore Python cache and virtual environments
+__pycache__/
+venv/
+.venv/
+*.pyc
+
+# Ignore Mac system files (since you are on a Mac)
+.DS_Store
+
+real_patents.csv
